@@ -24,13 +24,34 @@ def split_dataframe(
     return train_test_split(df, test_size=test_size, random_state=42)
 
 
-def preprocess_dataframe(df):
+def preprocess_dataframe(df, target_column=None):
     """
     Preprocess DataFrame by encoding categorical columns.
     ML algorithms typically can't only handle numbers, so there may be quite a lot of feature engineering and preprocessing with other types of data.
     Here, we take a very simplistic approach of applying the same treatment to all non-numeric columns.
     """
+
+    df = df.copy()
+
+    #Deleting useless columns that won't impact the prediction
+    df.drop(columns=["Name", "Ticket", "Cabin", "PassengerId"], inplace=True, errors="ignore")
+
+    # Handling NaN values
+    for col in df.columns:
+        if col == target_column:
+            continue 
+        if df[col].dtype == "object":
+            df[col] = df[col].fillna(df[col].mode()[0])
+        else:
+            df[col] = df[col].fillna(df[col].median())
+
+    # Encoding categorical variables
     for column in df.select_dtypes(include=["object"]):
+        if column == target_column:
+            continue  
         le = LabelEncoder()
         df[column] = le.fit_transform(df[column].astype(str))
+
     return df
+
+

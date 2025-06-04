@@ -6,12 +6,15 @@ from html import parser
 import logging
 import os
 import sys
-from typing import Any
+from typing import Any, Optional
 from pathlib import Path
-
+import pandas as pd
 from dsba.data_ingestion import load_csv_from_path, write_csv_to_path
-from dsba.model_registry import list_models_ids, load_model, load_model_metadata
+from dsba.model_registry import list_models_ids, load_model, load_model_metadata, save_model
 from dsba.model_prediction import classify_dataframe
+from dsba.model_training import train_multiple_classifiers
+from dsba.model_evaluation import evaluate_classifier
+DSBA_MODELS_ROOT_PATH = os.getenv("DSBA_MODELS_ROOT_PATH")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,17 +31,42 @@ def create_parser():
     We want to define a commend line that does
     dsba_cli [command] [options]
     """
-    parser = argparse.ArgumentParser(description="DSBA Plaftorm CLI Tool")
+    parser = argparse.ArgumentParser(description="DSBA Platform CLI Tool")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # Preprocess command
+    preprocess_parser = subparsers.add_parser("preprocess", help="Preprocess and split dataset")
+    preprocess_parser.add_argument("--csv", help="Input CSV file path", required=True)
+    preprocess_parser.add_argument("--target", help="Target column name", required=True)
+    preprocess_parser.add_argument("--model_id", help="Model ID for saving the split data", required=True)
 
     # List models command (it has no additional parameters)
     subparsers.add_parser("list", help="List available models")
 
-    # Predict command (it requires a model name, an input file and an output file)
-    predict_parser = subparsers.add_parser("predict", help="Make predictions")
-    predict_parser.add_argument("--model", help="Model name to use", required=True)
-    predict_parser.add_argument("--input", help="Input file path", required=True)
-    predict_parser.add_argument("--output", help="Output file path", required=True)
+    #List metrics
+    subparsers.add_parser("metrics", help="List available evaluation metrics with definitions")
+
+    #Create a command "train"
+    train_parser = subparsers.add_parser("train", help="Train multiple classifier")
+    #Necessary arguments for the command
+    train_parser.add_argument("--csv", help="Input CSV file path", required=True)
+    train_parser.add_argument("--target", help="Target column name", required=True)
+    train_parser.add_argument("--model_id", help="ID to save the model as", required=True)
+    train_parser.add_argument("--algorithm", help="Algorithm to use (xgboost, random_forest, logistic_regression, svm, decision_tree, all)", default="all")
+    train_parser.add_argument("--gridsearch", help="Use GridSearch for hyperparameter tuning", action="store_true")
+
+    #Predict command
+    predict_specific = subparsers.add_parser("predict_with_model", help="Predict using a specific model")
+    predict_specific.add_argument("--model", help="Model name to use", required=True)
+    predict_specific.add_argument("--input", help="Input file path", required=True)
+    predict_specific.add_argument("--output", help="Output file path", required=True)
+
+    # Build image command
+    subparsers.add_parser("build_image", help="Build the FastAPI image")
+
+    # Run container command
+    subparsers.add_parser("run_container", help="Run the FastAPI container")
+
 
     return parser
 
@@ -52,18 +80,99 @@ def main():
     args = get_script_args()
     if args.command == "list":
         list_models()
-    elif args.command == "predict":
-        predict(args.model, args.input, args.output)
+    elif args.command == "preprocess":
+        preprocess_and_split(args.csv, args.target, args.model_id)
+    elif args.command == "metrics":
+        list_metrics()
+    elif args.command == "train":
+        train(args.csv, args.target, args.model_id, args.algorithm, args.gridsearch)
+    elif args.command == "predict_with_model":
+        predict_with_specific_model(args.model, args.input, args.output)
+    elif args.command == "build_image":
+        build_image()
+    elif args.command == "run_container":
+        run_container()
 
 
-# We create a few light wrappers around our platform functionalities, just collect inputs and print the results.
+# ===== MAIN FUNCTIONS =====
+
+def list_models(dataset) -> None:
+    if os.path.exists("models/"):
+        models = list_models_ids(dataset)
+        print("Available models:")
+        for model in models:
+            print(f"- {model}")
+    else:
+        print("No models available")
 
 
-def list_models() -> None:
-    models = list_models_ids()
-    print("Available models:")
-    for model in models:
-        print(f"- {model}")
+def list_metrics():
+    metrics_info = {
+        "accuracy": "Percentage  of passengers correctly predicted (survived or died). Example: 85% accuracy means you correctly predicted the fate of 850 out of 1000 passengers.",
+        "precision": "Of passengers you predicted would survive, what percentage actually survived. Example: 80% precision means 8 out of 10 passengers you said would survive actually did survive.",
+        "recall": "Of passengers who actually survived, what percentage did you correctly identify. Example: 70% recall means you found 7 out of 10 actual survivors (but missed 3).",
+        "f1_score": "Balanced average of precision and recall, useful when you care equally about finding survivors and avoiding false alarms. Example: F1 of 0.75 balances finding most survivors while not incorrectly predicting too many deaths as survivals.",
+    }
+
+    print("Available Metrics:\n")
+    for name, description in metrics_info.items():
+        print(f"{name.upper()}:\n  {description}\n")
+
+
+def preprocess_and_split(csv_path: str, target_column: str, model_id: str, test_size: float = 0.2):
+    from dsba.data_ingestion import load_csv_from_path, write_csv_to_path
+    from dsba.preprocessing import preprocess_dataframe, split_dataframe
+
+    df = load_csv_from_path(csv_path)
+    print(f"✅ Loaded {len(df)} rows from {csv_path}")
+
+    df = preprocess_dataframe(df, target_column=target_column)
+    print(f"✅ Preprocessed dataframe with columns: {df.columns.tolist()}")
+
+    train_df, test_df = split_dataframe(df, test_size=test_size)
+
+    model_dir = f"models/{model_id}"
+    os.makedirs(model_dir, exist_ok=True)
+
+    # Sauver seulement train et test (pas full)
+    write_csv_to_path(train_df, os.path.join(model_dir, "train.csv"))
+    write_csv_to_path(test_df, os.path.join(model_dir, "test.csv"))
+
+    # Sauver les colonnes utiles pour prédiction future (hors target)
+    useful_columns_path = os.path.join(model_dir, "useful_columns.txt")
+    with open(useful_columns_path, "w") as f:
+        col_names = df.columns.tolist()
+        col_types = df.dtypes.tolist()
+        for col, dtype in zip(col_names, col_types):
+            if col != target_column:  # Exclure la target column
+                f.write(f"{col} : {dtype}\n")
+
+    print(f"✅ Saved train/test split in: {model_dir}")
+    print(f"   - Train: {len(train_df)} rows")
+    print(f"   - Test: {len(test_df)} rows")
+
+
+
+def train(dataset_path: str, target_column: str, model_id: str, algorithm: str, gridsearch: bool) -> None:
+
+    train_file = os.path.join("models", model_id, "train.csv")
+
+    if not os.path.exists(train_file):
+        print(f"❌ Missing train file in 'models/{model_id}/'")
+        return
+
+    dataset_train = pd.read_csv(train_file)
+
+    # Ici, on ignore algorithm et gridsearch, car la fonction entraîne tous les modèles en interne
+    model_name_prefix = model_id  # prefix pour l'id du modèle
+
+    clf, metadata = train_multiple_classifiers(dataset_train, target_column, model_name_prefix)
+
+    save_model(clf, metadata)
+
+    print(f"✅ Trained and saved best model: {metadata.id}")
+
+
 
 
 def predict(model_id: str, input_file: str, output_file: str) -> None:
@@ -72,7 +181,26 @@ def predict(model_id: str, input_file: str, output_file: str) -> None:
     df = load_csv_from_path(input_file)
     predictions = classify_dataframe(model, df, metadata.target_column)
     write_csv_to_path(predictions, output_file)
-    print(f"Scored {len(predictions)} records")
+    print(f"✅ Scored {len(predictions)} records – Results saved to {output_file}")
+
+def predict_with_specific_model(model_id: str, input_file: str, output_file: str) -> None:
+    if not os.path.exists(f"models/{model_id}.pkl"):
+        print(f"❌ Model '{model_id}' not found in models/")
+        return
+
+    predict(model_id, input_file, output_file)
+
+
+
+#Building an image for the Docker Container
+def build_image():
+    os.system("docker buildx build --platform linux/amd64 -t fastapi-app -f src/api/Dockerfile . --load")
+    logging.info("✅ Image built successfully")
+
+
+def run_container():
+    os.system(
+        f"docker run -d -p 8000:8000 --name mlops-container -v '{DSBA_MODELS_ROOT_PATH}:/app/models' -e DSBA_MODELS_ROOT_PATH='/app/models' --env-file .env fastapi-app")
 
 
 if __name__ == "__main__":
