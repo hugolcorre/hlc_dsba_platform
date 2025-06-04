@@ -1,125 +1,105 @@
-# DSBA Platform
 
-A toy MLOps Platform for educational purposes
+# DSBA Platform – Installation Guide
 
-## Project Structure
+This guide explains how to properly set up and run the project in a local development environment.
 
-This project has a fairly standard structure (but it is still adapted to be simplified compared to a slightly more typical structure):
+---
 
-- a `pyproject.toml` file contains the project metadata, including the dependencies. It is common to see a "setup.py" file in Python projects but we use this more modern approach to define the project metadata.
-- The `src` folder contains the code code (dsba) as well as the code for the CLI, the API, the web app, the notebooks, as well as the Dockerfiles.
-- The `tests` folder contains some unit and integration tests
-- `.gitignore` is a special file name that will be detected by git. This file contains a list of files and folders that should not be committed to the repository. For example (see below for setup), the `.env` file is specific to your own deployment so it should not be committed to the repository (it may contain specific file paths that are only meaningful on your machine, and it may contain secrets like API keys - API keys and passwords should never be stored in a git repository).
+## 1. Download the Project
 
-## Installation (dev mode)
-
-### Requirements
-
-Your machine should have the following software installed:
-
-- Python 3.12
-- git
-- to use the model training notebook (not required), you may need to install openmp (libomp) which is required by xgboost. But you can also not use the model_training module from this example or adapt it to use scikit-learn rather than xgboost.
-
-### Clone the repository
-
-- The first things to do is to copy this repository, to have a copy that you own on GitHub. This is because you are not allowed to push directly to the main repository owned by Joachim. Copying a repository on GitHub to have your own is called a "fork". You should understand that "forking" and "cloning" are not the same. Forking is a GitHub concept to copy a repository in your own GitHub account. Cloning basically means "downloading for the first time a repo to your computer". Just click on the fork button above when seeing this document from GitHub.
-
-- Move into the folder you want to work in (I saw many students not choosing a folder and just working in their home directory, you don't want to do that)
-
-- To be certain things are ok type:
+### Option A – Clone via Git
 
 ```bash
-git status
+cd ~/Desktop
+git clone https://github.com/your-username/hlc_dsba_platform.git dsba-platform
 ```
 
-This should fail and tell you there is no repository at this location. I saw many students trying to clone a repository inside a repository, you also don't want to be in this situation.
+> Note: The folder is renamed to `dsba-platform` for consistency with environment paths.
 
-Now you can clone the repository:
+### Option B – Download ZIP
+
+1. Go to the GitHub repository.
+2. Click **“Code”** > **“Download ZIP”**.
+3. Extract the ZIP to `~/Desktop` and rename the folder to `dsba-platform`.
+
+---
+
+## 2. Open the Project in VS Code
+
+* Launch Visual Studio Code.
+* Open the `~/Desktop/dsba-platform` folder.
+* Open a terminal using: `Ctrl + Shift + ` (backtick key).
+
+---
+
+## 3. Set Up the Virtual Environment
+
+In the terminal, run:
 
 ```bash
-git clone <the address of your fork>
-```
-
-### Installing the project
-
-cd into the repository folder.
-
-Create a virtual environment with the following command (for windows, python, not python3).
-Using the name ".venv" for your virtual environment is recommended.
-It is quite standard and tools like vscode will automatically find it.
-
-```bash
-python3 -m venv .venv
-```
-
-Install dependencies (as specified in pyproject.toml):
-
-```bash
+pip install hatch
+hatch env create
+hatch shell
 pip install -e .
 ```
 
-This will install the project in editable mode, meaning that any changes you make to the code will be reflected in your local environment.
+---
 
-## Running the tests
+## 4. Set Environment Variables
 
-To run the tests, you can use the following command:
-
-```bash
-pytest
-```
-
-This will run all the tests in the `tests` folder.
-
-## Usage
-
-You must set the environment variable `DSBA_MODELS_ROOT_PATH` to the address you want to store the models in before you can use the platform.
-
-For example as a MacOS user I set `/Users/joachim/dev/dsba/models_registry`.
-
-There are many ways to set environment variables depending on the context.
-
-In a python notebook, you can use the following code:
-
-```python
-import os
-os.environ["DSBA_MODELS_ROOT_PATH"] = "/path/to/your/models"
-```
-
-In a terminal or shell script, you can use the following code (Linux and MacOS):
+Add the following lines to the end of your `~/.zshrc` (or `~/.bashrc` if using Bash):
 
 ```bash
-export DSBA_MODELS_ROOT_PATH="/path/to/your/models"
+echo 'export PYTHONPATH="$PYTHONPATH:$HOME/Desktop/dsba-platform/src"' >> ~/.zshrc
+echo 'export DSBA_MODELS_ROOT_PATH="$HOME/Desktop/dsba-platform/models"' >> ~/.zshrc
 ```
 
-For windows, something of the sort may work:
+Then apply the changes:
 
 ```bash
-set DSBA_MODELS_ROOT_PATH="C:\path\to\your\models"
+source ~/.zshrc
 ```
 
-## CLI
+---
 
-List models registered on your system:
+## 5. Verify the Setup
+
+In your terminal (inside the project directory), run:
 
 ```bash
-src/cli/dsba_cli list
+hatch shell
+./src/cli/dsba_cli list
 ```
 
-Use a model to predict on a file:
+This should print a list of available models. If none exist yet, you'll see a message indicating that.
+
+---
+
+## 6. (Optional) Run the API with Docker
+
+### Build the Docker image
 
 ```bash
-src/cli/dsba_cli predict --input /path/to/your/data/file.csv --output /path/to/your/output/file.csv --model-id your_model_id
+./src/cli/dsba_cli build_image
 ```
 
-### Notebook
+### Run the Docker container
 
-...
+```bash
+./src/cli/dsba_cli run_container
+```
 
-### API
+Once running, the API will be accessible at:
 
-...
+[http://localhost:8000/docs](http://localhost:8000/docs)
 
-### Dockerized API
+---
 
-...
+## 7. User Guide
+
+A **User Guide** is included in the repository to help you understand and use the available CLI commands.
+
+> It explains how to preprocess data, train models, list models, make predictions, and more using `./src/cli/dsba_cli`.
+
+Refer to this document to navigate the platform's functionalities from the terminal.
+
