@@ -53,7 +53,6 @@ def create_parser():
     train_parser.add_argument("--target", help="Target column name", required=True)
     train_parser.add_argument("--model_id", help="ID to save the model as", required=True)
     train_parser.add_argument("--algorithm", help="Algorithm to use (xgboost, random_forest, logistic_regression, svm, decision_tree, all)", default="all")
-    train_parser.add_argument("--gridsearch", help="Use GridSearch for hyperparameter tuning", action="store_true")
 
     #Predict command
     predict_specific = subparsers.add_parser("predict_with_model", help="Predict using a specific model")
@@ -94,7 +93,6 @@ def main():
         run_container()
 
 
-# ===== MAIN FUNCTIONS =====
 
 def list_models(dataset) -> None:
     if os.path.exists("models/"):
@@ -134,17 +132,16 @@ def preprocess_and_split(csv_path: str, target_column: str, model_id: str, test_
     model_dir = f"models/{model_id}"
     os.makedirs(model_dir, exist_ok=True)
 
-    # Sauver seulement train et test (pas full)
     write_csv_to_path(train_df, os.path.join(model_dir, "train.csv"))
     write_csv_to_path(test_df, os.path.join(model_dir, "test.csv"))
 
-    # Sauver les colonnes utiles pour prédiction future (hors target)
+    # Save useful columns for prediction
     useful_columns_path = os.path.join(model_dir, "useful_columns.txt")
     with open(useful_columns_path, "w") as f:
         col_names = df.columns.tolist()
         col_types = df.dtypes.tolist()
         for col, dtype in zip(col_names, col_types):
-            if col != target_column:  # Exclure la target column
+            if col != target_column:  # Excluding target column
                 f.write(f"{col} : {dtype}\n")
 
     print(f"✅ Saved train/test split in: {model_dir}")
@@ -163,8 +160,7 @@ def train(dataset_path: str, target_column: str, model_id: str, algorithm: str, 
 
     dataset_train = pd.read_csv(train_file)
 
-    # Ici, on ignore algorithm et gridsearch, car la fonction entraîne tous les modèles en interne
-    model_name_prefix = model_id  # prefix pour l'id du modèle
+    model_name_prefix = model_id  # prefix for model id
 
     clf, metadata = train_multiple_classifiers(dataset_train, target_column, model_name_prefix)
 
@@ -197,7 +193,7 @@ def build_image():
     os.system("docker buildx build --platform linux/amd64 -t fastapi-app -f src/api/Dockerfile . --load")
     logging.info("✅ Image built successfully")
 
-
+#Running the container
 def run_container():
     os.system(
         f"docker run -d -p 8000:8000 --name mlops-container -v '{DSBA_MODELS_ROOT_PATH}:/app/models' -e DSBA_MODELS_ROOT_PATH='/app/models' --env-file .env fastapi-app")
